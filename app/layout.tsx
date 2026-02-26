@@ -16,6 +16,11 @@ export const metadata: Metadata = {
   title: "Sleepwell – Baby Sleep Tracker",
   description:
     "Minimal PWA for tracking baby wake windows and next nap time in dark mode.",
+  manifest: "/manifest.webmanifest",
+};
+
+export const viewport = {
+  themeColor: "#020617",
 };
 
 export default function RootLayout({
@@ -33,3 +38,4 @@ export default function RootLayout({
     </html>
   );
 }
+

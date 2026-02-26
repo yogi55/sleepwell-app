@@ -2,10 +2,35 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Moon, Sun } from "lucide-react";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const WAKE_WINDOWS_MIN = [90, 105, 120, 135] as const;
 
 type BabyState = "awake" | "asleep";
+
+type SleepSessionRow = {
+  id: string;
+  start_time: string;
+  end_time: string | null;
+};
+
+let supabaseSingleton: SupabaseClient | null = null;
+function getSupabase() {
+  if (supabaseSingleton) return supabaseSingleton;
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    // Keep the page functional even if envs are missing in dev.
+    throw new Error(
+      "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    );
+  }
+
+  supabaseSingleton = createClient(url, anonKey);
+  return supabaseSingleton;
+}
 
 function formatDuration(ms: number) {
   if (ms < 0) ms = 0;
@@ -33,6 +58,11 @@ export default function Home() {
   const [wakeStart, setWakeStart] = useState<number>(() => Date.now());
   const [tick, setTick] = useState<number>(() => Date.now());
   const [windowIndex, setWindowIndex] = useState<number>(0); // 0..3 for 4‑місячної дитини
+  const [activeSleepSessionId, setActiveSleepSessionId] = useState<
+    string | null
+  >(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // 1‑секундний тік для оновлення таймера
   useEffect(() => {
@@ -43,6 +73,31 @@ export default function Home() {
   }, []);
 
   const currentWindowMinutes = WAKE_WINDOWS_MIN[windowIndex] ?? WAKE_WINDOWS_MIN[WAKE_WINDOWS_MIN.length - 1];
+
+  // Restore an active sleep session id across refreshes (optional but useful for reliability).
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("sleepwell_active_session_id");
+      if (saved) setActiveSleepSessionId(saved);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (activeSleepSessionId) {
+        window.localStorage.setItem(
+          "sleepwell_active_session_id",
+          activeSleepSessionId,
+        );
+      } else {
+        window.localStorage.removeItem("sleepwell_active_session_id");
+      }
+    } catch {
+      // ignore
+    }
+  }, [activeSleepSessionId]);
 
   const { elapsedMs, nextNapTime, timeUntilNextNapMs } = useMemo(() => {
     if (!wakeStart) {
@@ -68,20 +123,68 @@ export default function Home() {
 
   const { hh, mm, ss } = formatDuration(elapsedMs);
 
-  const handleToggle = () => {
-    setBabyState((prev) => {
-      if (prev === "awake") {
-        // Перемикаємо в "сон" — таймер зупиняється
-        return "asleep";
+  const handleToggle = async () => {
+    setSyncError(null);
+
+    // Prevent double-taps while we sync to Supabase (especially on mobile).
+    if (isSyncing) return;
+
+    const now = new Date();
+
+    if (babyState === "awake") {
+      // -> asleep: create a new sleep session with start_time
+      setIsSyncing(true);
+      try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+          .from("sleep_sessions")
+          .insert({ start_time: now.toISOString(), end_time: null })
+          .select("id,start_time,end_time")
+          .single<SleepSessionRow>();
+
+        if (error) throw error;
+        setActiveSleepSessionId(data.id);
+        setBabyState("asleep");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Supabase error";
+        setSyncError(msg);
+      } finally {
+        setIsSyncing(false);
+      }
+      return;
+    }
+
+    // -> awake: close the active sleep session with end_time, and start new wake window
+    setIsSyncing(true);
+    try {
+      const supabase = getSupabase();
+      const sessionId = activeSleepSessionId;
+
+      if (sessionId) {
+        const { error } = await supabase
+          .from("sleep_sessions")
+          .update({ end_time: now.toISOString() })
+          .eq("id", sessionId);
+        if (error) throw error;
+      } else {
+        // No local session id (e.g. local storage cleared). We still allow the UX flow.
+        setSyncError(
+          "Не знайдено активну сесію сну для оновлення (продовжую без синку).",
+        );
       }
 
-      // Перемикаємо в "неспання" — нове вікно неспання
-      setWakeStart(Date.now());
+      setActiveSleepSessionId(null);
+      setWakeStart(now.getTime());
       setWindowIndex((prevIndex) =>
         Math.min(prevIndex + 1, WAKE_WINDOWS_MIN.length - 1),
       );
-      return "awake";
-    });
+      setBabyState("awake");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Supabase error";
+      setSyncError(msg);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const isAwake = babyState === "awake";
@@ -167,6 +270,12 @@ export default function Home() {
               <p className="mt-3 text-xs text-zinc-500">{untilLabel}</p>
             </div>
 
+            {syncError ? (
+              <div className="rounded-2xl border border-red-900/60 bg-red-950/30 px-4 py-3 text-xs text-red-200">
+                {syncError}
+              </div>
+            ) : null}
+
             <div className="rounded-2xl border border-dashed border-zinc-800/80 px-4 py-3 text-xs text-zinc-500">
               Алгоритм: час пробудження + поточне вікно неспання (4 міс:{" "}
               {WAKE_WINDOWS_MIN.join(" / ")} хв) = час наступного сну.
@@ -179,7 +288,8 @@ export default function Home() {
           <div className="pointer-events-auto w-full max-w-md">
             <button
               onClick={handleToggle}
-              className="flex h-16 w-full items-center justify-center gap-3 rounded-3xl bg-zinc-50 text-zinc-950 transition active:scale-[0.98] active:bg-zinc-200"
+              disabled={isSyncing}
+              className="flex h-16 w-full items-center justify-center gap-3 rounded-3xl bg-zinc-50 text-zinc-950 transition active:scale-[0.98] active:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-70"
             >
               <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-900 text-zinc-100">
                 {isAwake ? (
@@ -190,7 +300,7 @@ export default function Home() {
               </span>
               <div className="flex flex-col items-start">
                 <span className="text-xs font-semibold uppercase tracking-[0.22em]">
-                  {isAwake ? "SLEEP" : "AWAKE"}
+                  {isSyncing ? "SYNC…" : isAwake ? "SLEEP" : "AWAKE"}
                 </span>
                 <span className="text-sm">
                   {isAwake

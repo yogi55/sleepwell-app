@@ -1,0 +1,14 @@
+{
+  "name": "Sleepwell – Baby Sleep Tracker",
+  "short_name": "Sleepwell",
+  "description": "Minimal dark-mode PWA to track baby wake windows and next nap time.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "categories": ["health", "lifestyle", "kids"],
+  "icons": []
+}
+
