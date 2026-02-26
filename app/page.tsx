@@ -1,15 +1,33 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Moon, Sun } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Milk,
+  Moon,
+  Sun,
+  Timer,
+} from "lucide-react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const WAKE_WINDOWS_MIN = [90, 105, 120, 135] as const;
 
 type BabyState = "awake" | "asleep";
+type FeedingSide = "left" | "right";
 
 type SleepSessionRow = {
   id: string;
+  start_time: string;
+  end_time: string | null;
+};
+
+type BabyLogRow = {
+  id: string;
+  category: string;
+  side: FeedingSide | null;
+  ml: number | null;
+  is_active: boolean;
   start_time: string;
   end_time: string | null;
 };
@@ -46,6 +64,14 @@ function formatDuration(ms: number) {
   return { hh, mm, ss };
 }
 
+function formatCompactDuration(ms: number) {
+  if (ms < 0) ms = 0;
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
 function formatTime(date: Date) {
   return new Intl.DateTimeFormat("uk-UA", {
     hour: "2-digit",
@@ -63,6 +89,22 @@ export default function Home() {
   >(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Feeding
+  const [feedingMl, setFeedingMl] = useState<string>("");
+  const [feedingError, setFeedingError] = useState<string | null>(null);
+  const [isFeedingSyncing, setIsFeedingSyncing] = useState(false);
+  const [activeFeedingId, setActiveFeedingId] = useState<string | null>(null);
+  const [activeFeedingSide, setActiveFeedingSide] = useState<
+    FeedingSide | null
+  >(null);
+  const [lastFeedingSide, setLastFeedingSide] = useState<FeedingSide | null>(
+    null,
+  );
+
+  // Timeline
+  const [timeline, setTimeline] = useState<BabyLogRow[]>([]);
+  const [isTimelineLoading, setIsTimelineLoading] = useState(false);
 
   // 1‑секундний тік для оновлення таймера
   useEffect(() => {
@@ -84,6 +126,16 @@ export default function Home() {
     }
   }, []);
 
+  // Restore last feeding side (UX hint)
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("sleepwell_last_feeding_side");
+      if (saved === "left" || saved === "right") setLastFeedingSide(saved);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     try {
       if (activeSleepSessionId) {
@@ -98,6 +150,86 @@ export default function Home() {
       // ignore
     }
   }, [activeSleepSessionId]);
+
+  useEffect(() => {
+    try {
+      if (lastFeedingSide) {
+        window.localStorage.setItem("sleepwell_last_feeding_side", lastFeedingSide);
+      }
+    } catch {
+      // ignore
+    }
+  }, [lastFeedingSide]);
+
+  const fetchTimeline = async () => {
+    setIsTimelineLoading(true);
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from("baby_logs")
+        .select("id,category,side,ml,is_active,start_time,end_time")
+        .order("start_time", { ascending: false })
+        .limit(10)
+        .returns<BabyLogRow[]>();
+      if (error) throw error;
+
+      setTimeline(data ?? []);
+
+      // Derive feeding state from timeline (active + last used side)
+      const active = (data ?? []).find(
+        (r) => r.category === "feeding" && r.is_active,
+      );
+      if (active) {
+        setActiveFeedingId(active.id);
+        setActiveFeedingSide(active.side);
+      } else {
+        setActiveFeedingId(null);
+        setActiveFeedingSide(null);
+      }
+
+      const lastFeed = (data ?? []).find((r) => r.category === "feeding" && r.side);
+      if (lastFeed?.side) setLastFeedingSide(lastFeed.side);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Supabase error";
+      setFeedingError(msg);
+    } finally {
+      setIsTimelineLoading(false);
+    }
+  };
+
+  // Initial timeline fetch + realtime subscription
+  useEffect(() => {
+    fetchTimeline();
+
+    let channel: ReturnType<SupabaseClient["channel"]> | null = null;
+    try {
+      const supabase = getSupabase();
+      channel = supabase
+        .channel("baby_logs_timeline")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "baby_logs" },
+          () => {
+            fetchTimeline();
+          },
+        )
+        .subscribe();
+    } catch {
+      // If env vars are missing, keep UI usable without realtime.
+    }
+
+    return () => {
+      if (channel) {
+        try {
+          const supabase = getSupabase();
+          supabase.removeChannel(channel);
+        } catch {
+          // ignore
+        }
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { elapsedMs, nextNapTime, timeUntilNextNapMs } = useMemo(() => {
     if (!wakeStart) {
@@ -122,6 +254,88 @@ export default function Home() {
   }, [babyState, wakeStart, tick, currentWindowMinutes]);
 
   const { hh, mm, ss } = formatDuration(elapsedMs);
+
+  const handleFeeding = async (side: FeedingSide) => {
+    setFeedingError(null);
+    if (isFeedingSyncing) return;
+
+    const now = new Date();
+    setIsFeedingSyncing(true);
+    try {
+      const supabase = getSupabase();
+
+      // If tapping the currently active side -> stop it
+      if (activeFeedingId && activeFeedingSide === side) {
+        const { error } = await supabase
+          .from("baby_logs")
+          .update({
+            end_time: now.toISOString(),
+            is_active: false,
+          })
+          .eq("id", activeFeedingId);
+        if (error) throw error;
+
+        setActiveFeedingId(null);
+        setActiveFeedingSide(null);
+        await fetchTimeline();
+        return;
+      }
+
+      // If there is an active feeding on the other side -> end it first
+      const otherSide: FeedingSide = side === "left" ? "right" : "left";
+      const { data: otherActive, error: otherErr } = await supabase
+        .from("baby_logs")
+        .select("id")
+        .eq("category", "feeding")
+        .eq("is_active", true)
+        .eq("side", otherSide)
+        .limit(1)
+        .maybeSingle<{ id: string }>();
+      if (otherErr) throw otherErr;
+
+      if (otherActive?.id) {
+        const { error: endErr } = await supabase
+          .from("baby_logs")
+          .update({
+            end_time: now.toISOString(),
+            is_active: false,
+          })
+          .eq("id", otherActive.id);
+        if (endErr) throw endErr;
+      }
+
+      const mlValue =
+        feedingMl.trim() === "" ? null : Number.parseFloat(feedingMl.trim());
+      const ml =
+        mlValue != null && Number.isFinite(mlValue) && mlValue >= 0
+          ? mlValue
+          : null;
+
+      const { data: inserted, error: insErr } = await supabase
+        .from("baby_logs")
+        .insert({
+          category: "feeding",
+          side,
+          ml,
+          is_active: true,
+          start_time: now.toISOString(),
+          end_time: null,
+        })
+        .select("id,category,side,ml,is_active,start_time,end_time")
+        .single<BabyLogRow>();
+      if (insErr) throw insErr;
+
+      setActiveFeedingId(inserted.id);
+      setActiveFeedingSide(side);
+      setLastFeedingSide(side);
+      await fetchTimeline();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Supabase error";
+      setFeedingError(msg);
+    } finally {
+      setIsFeedingSyncing(false);
+    }
+  };
 
   const handleToggle = async () => {
     setSyncError(null);
@@ -279,6 +493,184 @@ export default function Home() {
             <div className="rounded-2xl border border-dashed border-zinc-800/80 px-4 py-3 text-xs text-zinc-500">
               Алгоритм: час пробудження + поточне вікно неспання (4 міс:{" "}
               {WAKE_WINDOWS_MIN.join(" / ")} хв) = час наступного сну.
+            </div>
+          </div>
+        </section>
+
+        {/* Feeding + Timeline */}
+        <section className="mt-4 w-full space-y-4">
+          <div className="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+                  Feeding
+                </p>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Натисни сторону — старт. Повторний клік на активну — стоп.
+                </p>
+              </div>
+              <div className="rounded-full border border-zinc-800 bg-zinc-950/30 px-3 py-1 text-[11px] text-zinc-400">
+                <span className="inline-flex items-center gap-1">
+                  <Timer className="h-3 w-3" />
+                  {activeFeedingSide
+                    ? `Активно: ${activeFeedingSide.toUpperCase()}`
+                    : "Не активно"}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <button
+                onClick={() => handleFeeding("left")}
+                disabled={isFeedingSyncing}
+                className={[
+                  "flex h-16 items-center justify-center gap-3 rounded-3xl border transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70",
+                  activeFeedingSide === "left"
+                    ? "border-emerald-700 bg-emerald-950/40"
+                    : "border-zinc-800 bg-zinc-950/30",
+                  lastFeedingSide === "left" && activeFeedingSide !== "left"
+                    ? "text-emerald-200"
+                    : "text-zinc-100",
+                ].join(" ")}
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-900 text-zinc-100">
+                  <ArrowLeft className="h-5 w-5" />
+                </span>
+                <div className="flex flex-col items-start leading-tight">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em]">
+                    Left
+                  </span>
+                  <span className="text-sm text-zinc-300">
+                    {activeFeedingSide === "left" ? "Stop" : "Start"}
+                  </span>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleFeeding("right")}
+                disabled={isFeedingSyncing}
+                className={[
+                  "flex h-16 items-center justify-center gap-3 rounded-3xl border transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70",
+                  activeFeedingSide === "right"
+                    ? "border-emerald-700 bg-emerald-950/40"
+                    : "border-zinc-800 bg-zinc-950/30",
+                  lastFeedingSide === "right" && activeFeedingSide !== "right"
+                    ? "text-emerald-200"
+                    : "text-zinc-100",
+                ].join(" ")}
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-900 text-zinc-100">
+                  <ArrowRight className="h-5 w-5" />
+                </span>
+                <div className="flex flex-col items-start leading-tight">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em]">
+                    Right
+                  </span>
+                  <span className="text-sm text-zinc-300">
+                    {activeFeedingSide === "right" ? "Stop" : "Start"}
+                  </span>
+                </div>
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center gap-3">
+              <div className="flex flex-1 items-center gap-2 rounded-2xl border border-zinc-800 bg-zinc-950/30 px-3 py-2">
+                <Milk className="h-4 w-4 text-zinc-400" />
+                <input
+                  value={feedingMl}
+                  onChange={(e) => setFeedingMl(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="ml (пляшечка, опц.)"
+                  className="w-full bg-transparent text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                />
+              </div>
+              <div className="text-xs text-zinc-500">
+                {isFeedingSyncing ? "sync…" : " "}
+              </div>
+            </div>
+
+            {feedingError ? (
+              <div className="mt-3 rounded-2xl border border-red-900/60 bg-red-950/30 px-4 py-3 text-xs text-red-200">
+                {feedingError}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-3xl border border-zinc-800 bg-zinc-900/40 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+                Timeline
+              </p>
+              <p className="text-[11px] text-zinc-500">
+                {isTimelineLoading ? "оновлення…" : "останні 10 подій"}
+              </p>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {timeline.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-zinc-800/80 px-4 py-6 text-center text-sm text-zinc-500">
+                  Поки що немає подій
+                </div>
+              ) : (
+                timeline.map((e) => {
+                  const start = new Date(e.start_time);
+                  const end = e.end_time ? new Date(e.end_time) : null;
+                  const durMs = end
+                    ? end.getTime() - start.getTime()
+                    : tick - start.getTime();
+                  const isActive = e.is_active && !e.end_time;
+
+                  const icon =
+                    e.category === "feeding" ? (
+                      e.side === "left" ? (
+                        <ArrowLeft className="h-4 w-4" />
+                      ) : e.side === "right" ? (
+                        <ArrowRight className="h-4 w-4" />
+                      ) : (
+                        <Milk className="h-4 w-4" />
+                      )
+                    ) : (
+                      <Moon className="h-4 w-4" />
+                    );
+
+                  const title =
+                    e.category === "feeding"
+                      ? `Feeding • ${e.side ? e.side.toUpperCase() : "—"}`
+                      : e.category;
+
+                  return (
+                    <div
+                      key={e.id}
+                      className="relative flex items-start gap-3"
+                    >
+                      <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-950/30 text-zinc-200">
+                        {icon}
+                      </div>
+                      <div className="flex flex-1 flex-col">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm text-zinc-100">{title}</p>
+                          <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                            <span>{formatTime(start)}</span>
+                            <span className="text-zinc-700">•</span>
+                            <span
+                              className={
+                                isActive ? "text-emerald-300" : "text-zinc-500"
+                              }
+                            >
+                              {formatCompactDuration(durMs)}
+                            </span>
+                          </div>
+                        </div>
+                        {e.category === "feeding" && e.ml != null ? (
+                          <p className="mt-1 text-xs text-zinc-500">
+                            Bottle: {e.ml} ml
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </section>
