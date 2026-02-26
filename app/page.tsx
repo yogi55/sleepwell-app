@@ -1,11 +1,11 @@
-\"use client\";
+"use client";
 
-import { useEffect, useMemo, useState } from \"react\";
-import { Moon, Sun } from \"lucide-react\";
+import { useEffect, useMemo, useState } from "react";
+import { Moon, Sun } from "lucide-react";
 
 const WAKE_WINDOWS_MIN = [90, 105, 120, 135] as const;
 
-type BabyState = \"awake\" | \"asleep\";
+type BabyState = "awake" | "asleep";
 
 function formatDuration(ms: number) {
   if (ms < 0) ms = 0;
@@ -14,22 +14,22 @@ function formatDuration(ms: number) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
-  const hh = hours.toString().padStart(2, \"0\"");
-  const mm = minutes.toString().padStart(2, \"0\"");
-  const ss = seconds.toString().padStart(2, \"0\"");
+  const hh = hours.toString().padStart(2, "0"");
+  const mm = minutes.toString().padStart(2, "0"");
+  const ss = seconds.toString().padStart(2, "0"");
 
   return { hh, mm, ss };
 }
 
 function formatTime(date: Date) {
-  return new Intl.DateTimeFormat(\"uk-UA\", {
-    hour: \"2-digit\",
-    minute: \"2-digit\",
+  return new Intl.DateTimeFormat("uk-UA", {
+    hour: "2-digit",
+    minute: "2-digit",
   }).format(date);
 }
 
 export default function Home() {
-  const [babyState, setBabyState] = useState<BabyState>(\"awake\");
+  const [babyState, setBabyState] = useState<BabyState>("awake");
   const [wakeStart, setWakeStart] = useState<number>(() => Date.now());
   const [tick, setTick] = useState<number>(() => Date.now());
   const [windowIndex, setWindowIndex] = useState<number>(0); // 0..3 for 4‑місячної дитини
@@ -54,10 +54,10 @@ export default function Home() {
     }
 
     const now = tick;
-    const elapsed = babyState === \"awake\" ? now - wakeStart : 0;
+    const elapsed = babyState === "awake" ? now - wakeStart : 0;
     const nextNap = new Date(wakeStart + currentWindowMinutes * 60 * 1000);
     const untilNextNap =
-      babyState === \"awake\" ? nextNap.getTime() - now : null;
+      babyState === "awake" ? nextNap.getTime() - now : null;
 
     return {
       elapsedMs: elapsed,
@@ -70,30 +70,30 @@ export default function Home() {
 
   const handleToggle = () => {
     setBabyState((prev) => {
-      if (prev === \"awake\") {
-        // Перемикаємо в \"сон\" — таймер зупиняється
-        return \"asleep\";
+      if (prev === "awake") {
+        // Перемикаємо в "сон" — таймер зупиняється
+        return "asleep";
       }
 
-      // Перемикаємо в \"неспання\" — нове вікно неспання
+      // Перемикаємо в "неспання" — нове вікно неспання
       setWakeStart(Date.now());
       setWindowIndex((prevIndex) =>
         Math.min(prevIndex + 1, WAKE_WINDOWS_MIN.length - 1),
       );
-      return \"awake\";
+      return "awake";
     });
   };
 
-  const isAwake = babyState === \"awake\";
+  const isAwake = babyState === "awake";
 
   const windowLabel = `${windowIndex + 1}-е вікно • ${currentWindowMinutes} хв`;
 
-  let nextNapLabel = \"—\";
+  let nextNapLabel = "—";
   if (nextNapTime) {
     nextNapLabel = formatTime(nextNapTime);
   }
 
-  let untilLabel = \"Почніть відлік з моменту пробудження\";
+  let untilLabel = "Почніть відлік з моменту пробудження";
   if (timeUntilNextNapMs != null) {
     const overdue = timeUntilNextNapMs < 0;
     const ms = Math.abs(timeUntilNextNapMs);
