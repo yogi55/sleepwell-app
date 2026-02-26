@@ -4,10 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  CupSoda,
+  History,
   Milk,
   Moon,
-  Sun,
-  Timer,
+  MoonStar,
 } from "lucide-react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
@@ -77,6 +78,16 @@ function formatTime(date: Date) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+const glassCard =
+  "rounded-3xl border border-white/10 bg-slate-900/50 backdrop-blur-md";
+
+function glowClass(color: "indigo" | "rose") {
+  if (color === "indigo") {
+    return "shadow-[0_0_0_1px_rgba(99,102,241,0.35),0_0_28px_rgba(99,102,241,0.22)]";
+  }
+  return "shadow-[0_0_0_1px_rgba(244,63,94,0.35),0_0_28px_rgba(244,63,94,0.22)]";
 }
 
 export default function Home() {
@@ -402,6 +413,7 @@ export default function Home() {
   };
 
   const isAwake = babyState === "awake";
+  const isSleepActive = babyState === "asleep";
 
   const windowLabel = `${windowIndex + 1}-е вікно • ${currentWindowMinutes} хв`;
 
@@ -423,286 +435,291 @@ export default function Home() {
   }
 
   return (
-    <div className="flex min-h-screen w-full items-stretch justify-center bg-zinc-950 text-zinc-50">
-      <main className="relative flex w-full max-w-md flex-col justify-between px-4 pb-6 pt-4">
+    <div className="flex min-h-screen w-full items-stretch justify-center bg-slate-950 text-slate-50">
+      <main className="relative flex w-full max-w-md flex-col px-4 pb-40 pt-6">
         {/* Header */}
-        <header className="mb-4 flex items-center justify-between">
-          <div className="flex flex-col">
-            <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+        <header className="mb-6 flex items-end justify-between">
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-400">
               Sleepwell
             </span>
-            <span className="text-sm text-zinc-400">
-              Трекінг сну немовляти (4 міс)
-            </span>
+            <span className="text-sm text-slate-400">4 months • Wake windows</span>
           </div>
-          <div className="inline-flex items-center gap-1 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 text-[11px] text-zinc-400">
-            <Moon className="h-3 w-3" />
-            <span>Night mode</span>
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/40 px-3 py-1 text-[11px] text-slate-400">
+            <Moon size={20} strokeWidth={1.5} className="h-4 w-4" />
+            <span>Dark</span>
           </div>
         </header>
 
         {/* Центр: великий таймер і прогноз */}
-        <section className="flex flex-1 flex-col items-center justify-center gap-6">
-          <div className="flex flex-col items-center gap-3">
-            <span className="text-xs uppercase tracking-[0.25em] text-zinc-500">
-              В ЧАСІ НЕСПАННЯ
-            </span>
-            <div className="rounded-full border border-zinc-800 bg-zinc-900/60 px-5 py-3 text-center">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                Статус
-              </p>
-              <p className="mt-1 text-sm font-medium text-zinc-100">
-                {isAwake ? "Дитина НЕ спить" : "Дитина спить"}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-col items-center gap-2">
-            <div className="font-mono text-[52px] leading-none tabular-nums sm:text-[64px]">
-              {hh}:{mm}:{ss}
-            </div>
-            <p className="text-xs text-zinc-500">
-              Скільки дитина вже не спить
-            </p>
-          </div>
-
-          <div className="mt-4 w-full space-y-3">
-            <div className="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
-                    Наступне вкладання
-                  </p>
-                  <p className="mt-1 text-2xl font-semibold text-zinc-50">
-                    {nextNapLabel}
-                  </p>
-                </div>
-                <div className="rounded-full bg-zinc-800/80 px-3 py-1 text-[11px] text-zinc-200">
-                  {windowLabel}
-                </div>
+        <section className="space-y-4">
+          <div className={`${glassCard} p-4`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col">
+                <span className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-400">
+                  Status
+                </span>
+                <span className="mt-1 text-sm text-slate-50">
+                  {isAwake ? "Awake" : "Asleep"}
+                </span>
               </div>
-              <p className="mt-3 text-xs text-zinc-500">{untilLabel}</p>
+              <div
+                className={[
+                  "rounded-full px-3 py-1 text-[11px]",
+                  isSleepActive
+                    ? "bg-indigo-500/20 text-indigo-400"
+                    : "bg-slate-800/50 text-slate-400",
+                ].join(" ")}
+              >
+                {isSleepActive ? "Sleep active" : windowLabel}
+              </div>
             </div>
 
-            {syncError ? (
-              <div className="rounded-2xl border border-red-900/60 bg-red-950/30 px-4 py-3 text-xs text-red-200">
-                {syncError}
+            <div className="mt-5 flex flex-col items-center gap-2">
+              <div className="font-mono text-[64px] leading-none tabular-nums tracking-tight">
+                {hh}:{mm}:{ss}
               </div>
-            ) : null}
-
-            <div className="rounded-2xl border border-dashed border-zinc-800/80 px-4 py-3 text-xs text-zinc-500">
-              Алгоритм: час пробудження + поточне вікно неспання (4 міс:{" "}
-              {WAKE_WINDOWS_MIN.join(" / ")} хв) = час наступного сну.
+              <p className="text-xs text-slate-400">
+                {isAwake ? "Time awake" : "Time awake (paused)"}
+              </p>
             </div>
           </div>
-        </section>
 
-        {/* Feeding + Timeline */}
-        <section className="mt-4 w-full space-y-4">
-          <div className="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-4">
+          <div className={`${glassCard} p-4`}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
-                  Feeding
+                <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-400">
+                  Next sleep
                 </p>
-                <p className="mt-1 text-sm text-zinc-400">
-                  Натисни сторону — старт. Повторний клік на активну — стоп.
+                <p className="mt-1 text-3xl font-semibold text-slate-50">
+                  {nextNapLabel}
                 </p>
+                <p className="mt-2 text-sm text-slate-400">{untilLabel}</p>
               </div>
-              <div className="rounded-full border border-zinc-800 bg-zinc-950/30 px-3 py-1 text-[11px] text-zinc-400">
-                <span className="inline-flex items-center gap-1">
-                  <Timer className="h-3 w-3" />
-                  {activeFeedingSide
-                    ? `Активно: ${activeFeedingSide.toUpperCase()}`
-                    : "Не активно"}
-                </span>
+              <div className="rounded-full bg-indigo-500/20 px-3 py-1 text-[11px] text-indigo-400">
+                {currentWindowMinutes}m
               </div>
             </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <button
-                onClick={() => handleFeeding("left")}
-                disabled={isFeedingSyncing}
-                className={[
-                  "flex h-16 items-center justify-center gap-3 rounded-3xl border transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70",
-                  activeFeedingSide === "left"
-                    ? "border-emerald-700 bg-emerald-950/40"
-                    : "border-zinc-800 bg-zinc-950/30",
-                  lastFeedingSide === "left" && activeFeedingSide !== "left"
-                    ? "text-emerald-200"
-                    : "text-zinc-100",
-                ].join(" ")}
-              >
-                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-900 text-zinc-100">
-                  <ArrowLeft className="h-5 w-5" />
-                </span>
-                <div className="flex flex-col items-start leading-tight">
-                  <span className="text-xs font-semibold uppercase tracking-[0.22em]">
-                    Left
-                  </span>
-                  <span className="text-sm text-zinc-300">
-                    {activeFeedingSide === "left" ? "Stop" : "Start"}
-                  </span>
-                </div>
-              </button>
-
-              <button
-                onClick={() => handleFeeding("right")}
-                disabled={isFeedingSyncing}
-                className={[
-                  "flex h-16 items-center justify-center gap-3 rounded-3xl border transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70",
-                  activeFeedingSide === "right"
-                    ? "border-emerald-700 bg-emerald-950/40"
-                    : "border-zinc-800 bg-zinc-950/30",
-                  lastFeedingSide === "right" && activeFeedingSide !== "right"
-                    ? "text-emerald-200"
-                    : "text-zinc-100",
-                ].join(" ")}
-              >
-                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-900 text-zinc-100">
-                  <ArrowRight className="h-5 w-5" />
-                </span>
-                <div className="flex flex-col items-start leading-tight">
-                  <span className="text-xs font-semibold uppercase tracking-[0.22em]">
-                    Right
-                  </span>
-                  <span className="text-sm text-zinc-300">
-                    {activeFeedingSide === "right" ? "Stop" : "Start"}
-                  </span>
-                </div>
-              </button>
-            </div>
-
-            <div className="mt-4 flex items-center gap-3">
-              <div className="flex flex-1 items-center gap-2 rounded-2xl border border-zinc-800 bg-zinc-950/30 px-3 py-2">
-                <Milk className="h-4 w-4 text-zinc-400" />
-                <input
-                  value={feedingMl}
-                  onChange={(e) => setFeedingMl(e.target.value)}
-                  inputMode="decimal"
-                  placeholder="ml (пляшечка, опц.)"
-                  className="w-full bg-transparent text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
-                />
-              </div>
-              <div className="text-xs text-zinc-500">
-                {isFeedingSyncing ? "sync…" : " "}
-              </div>
-            </div>
-
-            {feedingError ? (
-              <div className="mt-3 rounded-2xl border border-red-900/60 bg-red-950/30 px-4 py-3 text-xs text-red-200">
-                {feedingError}
-              </div>
-            ) : null}
           </div>
 
-          <div className="rounded-3xl border border-zinc-800 bg-zinc-900/40 p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
-                Timeline
-              </p>
-              <p className="text-[11px] text-zinc-500">
-                {isTimelineLoading ? "оновлення…" : "останні 10 подій"}
-              </p>
+          {syncError ? (
+            <div className={`${glassCard} border-red-500/20 bg-red-950/20 p-4 text-sm text-red-200`}>
+              {syncError}
             </div>
+          ) : null}
+        </section>
 
-            <div className="mt-4 space-y-3">
-              {timeline.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-zinc-800/80 px-4 py-6 text-center text-sm text-zinc-500">
-                  Поки що немає подій
-                </div>
-              ) : (
-                timeline.map((e) => {
-                  const start = new Date(e.start_time);
-                  const end = e.end_time ? new Date(e.end_time) : null;
-                  const durMs = end
-                    ? end.getTime() - start.getTime()
-                    : tick - start.getTime();
-                  const isActive = e.is_active && !e.end_time;
+        {/* Timeline (read-only content can live above thumb zone) */}
+        <section className="mt-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="inline-flex items-center gap-2 text-slate-400">
+              <History size={20} strokeWidth={1.5} />
+              <span className="text-[11px] font-medium uppercase tracking-[0.28em]">
+                Timeline
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-400">
+              {isTimelineLoading ? "Updating…" : "Last 10"}
+            </span>
+          </div>
 
-                  const icon =
-                    e.category === "feeding" ? (
-                      e.side === "left" ? (
-                        <ArrowLeft className="h-4 w-4" />
-                      ) : e.side === "right" ? (
-                        <ArrowRight className="h-4 w-4" />
-                      ) : (
-                        <Milk className="h-4 w-4" />
-                      )
-                    ) : (
-                      <Moon className="h-4 w-4" />
-                    );
+          <div className="space-y-3">
+            {timeline.length === 0 ? (
+              <div className={`${glassCard} p-6 text-center text-sm text-slate-400`}>
+                No events yet
+              </div>
+            ) : (
+              timeline.map((e) => {
+                const start = new Date(e.start_time);
+                const end = e.end_time ? new Date(e.end_time) : null;
+                const durMs = end
+                  ? end.getTime() - start.getTime()
+                  : tick - start.getTime();
+                const isActive = e.is_active && !e.end_time;
 
-                  const title =
-                    e.category === "feeding"
-                      ? `Feeding • ${e.side ? e.side.toUpperCase() : "—"}`
-                      : e.category;
+                const isFeeding = e.category === "feeding";
+                const isBottle = isFeeding && e.ml != null;
 
-                  return (
-                    <div
-                      key={e.id}
-                      className="relative flex items-start gap-3"
-                    >
-                      <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-950/30 text-zinc-200">
+                const icon = isFeeding ? (
+                  isBottle ? (
+                    <CupSoda size={20} strokeWidth={1.5} />
+                  ) : (
+                    <Milk size={20} strokeWidth={1.5} />
+                  )
+                ) : (
+                  <MoonStar size={20} strokeWidth={1.5} />
+                );
+
+                const title = isFeeding
+                  ? `Feeding • ${e.side ? e.side.toUpperCase() : "—"}`
+                  : e.category;
+
+                const accent =
+                  isFeeding ? "rose" : e.category === "sleep" ? "indigo" : "amber";
+
+                const accentText =
+                  accent === "rose"
+                    ? "text-rose-400"
+                    : accent === "indigo"
+                      ? "text-indigo-400"
+                      : "text-amber-400";
+                const accentBg =
+                  accent === "rose"
+                    ? "bg-rose-500/20"
+                    : accent === "indigo"
+                      ? "bg-indigo-500/20"
+                      : "bg-amber-500/20";
+
+                return (
+                  <div key={e.id} className={`${glassCard} p-4`}>
+                    <div className="flex items-start gap-3">
+                      <div className={`flex h-10 w-10 items-center justify-center rounded-2xl ${accentBg} ${accentText}`}>
                         {icon}
                       </div>
-                      <div className="flex flex-1 flex-col">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm text-zinc-100">{title}</p>
-                          <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="truncate text-sm text-slate-50">{title}</p>
+                          <div className="flex shrink-0 items-center gap-2 text-[11px] text-slate-400 tabular-nums">
                             <span>{formatTime(start)}</span>
-                            <span className="text-zinc-700">•</span>
-                            <span
-                              className={
-                                isActive ? "text-emerald-300" : "text-zinc-500"
-                              }
-                            >
+                            <span className="text-white/10">•</span>
+                            <span className={isActive ? accentText : "text-slate-400"}>
                               {formatCompactDuration(durMs)}
                             </span>
                           </div>
                         </div>
-                        {e.category === "feeding" && e.ml != null ? (
-                          <p className="mt-1 text-xs text-zinc-500">
-                            Bottle: {e.ml} ml
+                        {isBottle && e.ml != null ? (
+                          <p className="mt-1 text-xs text-slate-400">
+                            {e.ml} ml
                           </p>
                         ) : null}
                       </div>
                     </div>
-                  );
-                })
-              )}
-            </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </section>
 
-        {/* Фіксована велика кнопка керування знизу */}
-        <section className="pointer-events-none sticky bottom-2 left-0 right-0 mt-6 flex justify-center">
-          <div className="pointer-events-auto w-full max-w-md">
+        {/* Golden thumb zone actions */}
+        <footer className="pointer-events-none fixed bottom-0 left-0 right-0 z-10 flex justify-center px-4 pb-4 pt-3">
+          <div className="pointer-events-auto w-full max-w-md space-y-3">
+            <div className={`${glassCard} p-3`}>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => handleFeeding("left")}
+                  disabled={isFeedingSyncing}
+                  className={[
+                    "flex h-20 items-center justify-center gap-3 rounded-3xl border border-white/10 bg-slate-950/30 px-4 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-70",
+                    activeFeedingSide === "left"
+                      ? `bg-rose-500/10 text-rose-400 ${glowClass("rose")} animate-pulse`
+                      : "text-slate-50",
+                  ].join(" ")}
+                >
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/5">
+                    <ArrowLeft size={20} strokeWidth={1.5} />
+                  </span>
+                  <div className="flex flex-col items-start">
+                    <span className="text-[11px] font-medium uppercase tracking-[0.28em]">
+                      Left
+                    </span>
+                    <span className="text-sm text-slate-400">
+                      {activeFeedingSide === "left" ? "Stop" : "Start"}
+                    </span>
+                  </div>
+                  {lastFeedingSide === "left" && activeFeedingSide !== "left" ? (
+                    <span className="ml-auto h-2 w-2 rounded-full bg-rose-400" />
+                  ) : null}
+                </button>
+
+                <button
+                  onClick={() => handleFeeding("right")}
+                  disabled={isFeedingSyncing}
+                  className={[
+                    "flex h-20 items-center justify-center gap-3 rounded-3xl border border-white/10 bg-slate-950/30 px-4 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-70",
+                    activeFeedingSide === "right"
+                      ? `bg-rose-500/10 text-rose-400 ${glowClass("rose")} animate-pulse`
+                      : "text-slate-50",
+                  ].join(" ")}
+                >
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/5">
+                    <ArrowRight size={20} strokeWidth={1.5} />
+                  </span>
+                  <div className="flex flex-col items-start">
+                    <span className="text-[11px] font-medium uppercase tracking-[0.28em]">
+                      Right
+                    </span>
+                    <span className="text-sm text-slate-400">
+                      {activeFeedingSide === "right" ? "Stop" : "Start"}
+                    </span>
+                  </div>
+                  {lastFeedingSide === "right" && activeFeedingSide !== "right" ? (
+                    <span className="ml-auto h-2 w-2 rounded-full bg-rose-400" />
+                  ) : null}
+                </button>
+              </div>
+
+              <div className="mt-3 flex items-center gap-3">
+                <div className="flex flex-1 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/30 px-3 py-2">
+                  <CupSoda size={20} strokeWidth={1.5} className="text-slate-400" />
+                  <input
+                    value={feedingMl}
+                    onChange={(e) => setFeedingMl(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="ml (bottle, optional)"
+                    className="w-full bg-transparent text-sm text-slate-50 placeholder:text-slate-600 focus:outline-none"
+                  />
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  {isFeedingSyncing ? "sync…" : " "}
+                </div>
+              </div>
+
+              {feedingError ? (
+                <div className="mt-3 rounded-2xl border border-rose-500/20 bg-rose-950/20 px-4 py-3 text-sm text-rose-200">
+                  {feedingError}
+                </div>
+              ) : null}
+            </div>
+
             <button
               onClick={handleToggle}
               disabled={isSyncing}
-              className="flex h-16 w-full items-center justify-center gap-3 rounded-3xl bg-zinc-50 text-zinc-950 transition active:scale-[0.98] active:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-70"
+              className={[
+                "flex h-20 w-full items-center justify-between gap-4 rounded-3xl border border-white/10 bg-slate-900/50 px-5 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-70",
+                isSleepActive
+                  ? `bg-indigo-500/10 text-indigo-400 ${glowClass("indigo")} animate-pulse`
+                  : "text-slate-50",
+              ].join(" ")}
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-900 text-zinc-100">
-                {isAwake ? (
-                  <Moon className="h-5 w-5" />
+              <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/5">
+                {isSleepActive ? (
+                  <Moon size={20} strokeWidth={1.5} />
                 ) : (
-                  <Sun className="h-5 w-5" />
+                  <MoonStar size={20} strokeWidth={1.5} />
                 )}
               </span>
-              <div className="flex flex-col items-start">
-                <span className="text-xs font-semibold uppercase tracking-[0.22em]">
-                  {isSyncing ? "SYNC…" : isAwake ? "SLEEP" : "AWAKE"}
+              <div className="flex flex-1 flex-col items-start">
+                <span className="text-[11px] font-medium uppercase tracking-[0.28em]">
+                  {isSyncing ? "Sync…" : isAwake ? "Sleep" : "Awake"}
                 </span>
-                <span className="text-sm">
-                  {isAwake
-                    ? "Позначити: дитина лягла спати"
-                    : "Позначити: дитина прокинулась"}
+                <span className="text-sm text-slate-400">
+                  {isAwake ? "Start sleep session" : "End sleep session"}
                 </span>
               </div>
+              <span
+                className={[
+                  "rounded-full px-3 py-1 text-[11px]",
+                  isSleepActive
+                    ? "bg-indigo-500/20 text-indigo-400"
+                    : "bg-slate-800/50 text-slate-400",
+                ].join(" ")}
+              >
+                {isAwake ? "MoonStar" : "Moon"}
+              </span>
             </button>
           </div>
-        </section>
+        </footer>
       </main>
     </div>
   );
