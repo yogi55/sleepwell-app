@@ -13,6 +13,8 @@ import {
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const WAKE_WINDOWS_MIN = [90, 105, 120, 135] as const;
+const ENABLE_REALTIME =
+  process.env.NEXT_PUBLIC_DISABLE_SUPABASE_REALTIME !== "1";
 
 type BabyState = "awake" | "asleep";
 type FeedingSide = "left" | "right";
@@ -42,13 +44,42 @@ function getSupabase() {
 
   if (!url || !anonKey) {
     // Keep the page functional even if envs are missing in dev.
-    throw new Error(
-      "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    console.warn(
+      "[Supabase] Missing env vars. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local",
+      { hasUrl: !!url, hasAnonKey: !!anonKey },
     );
+    return null;
   }
 
   supabaseSingleton = createClient(url, anonKey);
   return supabaseSingleton;
+}
+
+function logSupabaseError(context: string, err: unknown) {
+  // Supabase/PostgREST errors are usually shaped like { message, details, hint, code }
+  const anyErr = err as {
+    message?: unknown;
+    details?: unknown;
+    hint?: unknown;
+    code?: unknown;
+  };
+
+  console.error(`[Supabase] ${context}`, {
+    message: anyErr?.message,
+    details: anyErr?.details,
+    hint: anyErr?.hint,
+    code: anyErr?.code,
+    raw: err,
+  });
+}
+
+function getUserFacingSupabaseError(err: unknown) {
+  const anyErr = err as { message?: unknown };
+  if (typeof anyErr?.message === "string" && anyErr.message.trim()) {
+    return anyErr.message;
+  }
+  if (err instanceof Error && err.message.trim()) return err.message;
+  return "Supabase error (see console for details)";
 }
 
 function formatDuration(ms: number) {
@@ -176,6 +207,13 @@ export default function Home() {
     setIsTimelineLoading(true);
     try {
       const supabase = getSupabase();
+      if (!supabase) {
+        setFeedingError(
+          "Supabase не налаштований. Додай NEXT_PUBLIC_SUPABASE_URL та NEXT_PUBLIC_SUPABASE_ANON_KEY у .env.local",
+        );
+        setTimeline([]);
+        return;
+      }
       const { data, error } = await supabase
         .from("baby_logs")
         .select("id,category,side,ml,is_active,start_time,end_time")
@@ -215,6 +253,14 @@ export default function Home() {
     let channel: ReturnType<SupabaseClient["channel"]> | null = null;
     try {
       const supabase = getSupabase();
+      if (!supabase) return;
+
+      if (!ENABLE_REALTIME) {
+        console.warn(
+          "[Supabase] Realtime is disabled (set NEXT_PUBLIC_DISABLE_SUPABASE_REALTIME=1 to silence).",
+        );
+        return;
+      }
       channel = supabase
         .channel("baby_logs_timeline")
         .on(
@@ -233,7 +279,7 @@ export default function Home() {
       if (channel) {
         try {
           const supabase = getSupabase();
-          supabase.removeChannel(channel);
+          if (supabase) supabase.removeChannel(channel);
         } catch {
           // ignore
         }
@@ -270,13 +316,32 @@ export default function Home() {
     setFeedingError(null);
     if (isFeedingSyncing) return;
 
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setFeedingError("Немає інтернет-зʼєднання. Спробуй ще раз, коли будеш online.");
+      return;
+    }
+
     const now = new Date();
     setIsFeedingSyncing(true);
     try {
       const supabase = getSupabase();
+      if (!supabase) {
+        setFeedingError(
+          "Supabase не налаштований. Додай NEXT_PUBLIC_SUPABASE_URL та NEXT_PUBLIC_SUPABASE_ANON_KEY у .env.local",
+        );
+        return;
+      }
 
       // If tapping the currently active side -> stop it
       if (activeFeedingId && activeFeedingSide === side) {
+        const updatePayload = {
+          end_time: now.toISOString(),
+          is_active: false,
+        };
+        console.log("[baby_logs] stop feeding payload", {
+          id: activeFeedingId,
+          payload: updatePayload,
+        });
         const { error } = await supabase
           .from("baby_logs")
           .update({
@@ -284,11 +349,15 @@ export default function Home() {
             is_active: false,
           })
           .eq("id", activeFeedingId);
-        if (error) throw error;
+        if (error) {
+          logSupabaseError("baby_logs.update(stop feeding)", error);
+          throw error;
+        }
 
         setActiveFeedingId(null);
         setActiveFeedingSide(null);
         await fetchTimeline();
+        setFeedingError(null);
         return;
       }
 
@@ -302,9 +371,20 @@ export default function Home() {
         .eq("side", otherSide)
         .limit(1)
         .maybeSingle<{ id: string }>();
-      if (otherErr) throw otherErr;
+      if (otherErr) {
+        logSupabaseError("baby_logs.select(other active feeding)", otherErr);
+        throw otherErr;
+      }
 
       if (otherActive?.id) {
+        const endPayload = {
+          end_time: now.toISOString(),
+          is_active: false,
+        };
+        console.log("[baby_logs] end other-side feeding payload", {
+          id: otherActive.id,
+          payload: endPayload,
+        });
         const { error: endErr } = await supabase
           .from("baby_logs")
           .update({
@@ -312,7 +392,10 @@ export default function Home() {
             is_active: false,
           })
           .eq("id", otherActive.id);
-        if (endErr) throw endErr;
+        if (endErr) {
+          logSupabaseError("baby_logs.update(end other-side feeding)", endErr);
+          throw endErr;
+        }
       }
 
       const mlValue =
@@ -322,27 +405,37 @@ export default function Home() {
           ? mlValue
           : null;
 
+      const insertPayload = {
+        category: "feeding",
+        side, // NOT NULL in our assumptions
+        is_active: true,
+        start_time: now.toISOString(),
+        end_time: null as string | null,
+        ml,
+      };
+
+      console.log("[baby_logs] insert feeding payload", insertPayload);
+
       const { data: inserted, error: insErr } = await supabase
         .from("baby_logs")
-        .insert({
-          category: "feeding",
-          side,
-          ml,
-          is_active: true,
-          start_time: now.toISOString(),
-          end_time: null,
-        })
+        // Using upsert makes repeated taps more tolerant if a client retries.
+        // It still creates a new row unless there's a conflicting unique constraint.
+        .insert(insertPayload)
         .select("id,category,side,ml,is_active,start_time,end_time")
         .single<BabyLogRow>();
-      if (insErr) throw insErr;
+      if (insErr) {
+        logSupabaseError("baby_logs.insert(feeding)", insErr);
+        throw insErr;
+      }
 
       setActiveFeedingId(inserted.id);
       setActiveFeedingSide(side);
       setLastFeedingSide(side);
       await fetchTimeline();
+      setFeedingError(null);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Supabase error";
-      setFeedingError(msg);
+      logSupabaseError("handleFeeding", e);
+      setFeedingError(getUserFacingSupabaseError(e));
     } finally {
       setIsFeedingSyncing(false);
     }
@@ -354,6 +447,11 @@ export default function Home() {
     // Prevent double-taps while we sync to Supabase (especially on mobile).
     if (isSyncing) return;
 
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setSyncError("Немає інтернет-зʼєднання. Спробуй ще раз, коли будеш online.");
+      return;
+    }
+
     const now = new Date();
 
     if (babyState === "awake") {
@@ -361,18 +459,29 @@ export default function Home() {
       setIsSyncing(true);
       try {
         const supabase = getSupabase();
+        if (!supabase) {
+          setSyncError(
+            "Supabase не налаштований. Додай NEXT_PUBLIC_SUPABASE_URL та NEXT_PUBLIC_SUPABASE_ANON_KEY у .env.local",
+          );
+          return;
+        }
+        const insertPayload = { start_time: now.toISOString(), end_time: null };
+        console.log("[sleep_sessions] insert payload", insertPayload);
         const { data, error } = await supabase
           .from("sleep_sessions")
-          .insert({ start_time: now.toISOString(), end_time: null })
+          .insert(insertPayload)
           .select("id,start_time,end_time")
           .single<SleepSessionRow>();
 
-        if (error) throw error;
+        if (error) {
+          logSupabaseError("sleep_sessions.insert", error);
+          throw error;
+        }
         setActiveSleepSessionId(data.id);
         setBabyState("asleep");
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Supabase error";
-        setSyncError(msg);
+        logSupabaseError("handleToggle(start sleep)", e);
+        setSyncError(getUserFacingSupabaseError(e));
       } finally {
         setIsSyncing(false);
       }
@@ -383,14 +492,28 @@ export default function Home() {
     setIsSyncing(true);
     try {
       const supabase = getSupabase();
+      if (!supabase) {
+        setSyncError(
+          "Supabase не налаштований. Додай NEXT_PUBLIC_SUPABASE_URL та NEXT_PUBLIC_SUPABASE_ANON_KEY у .env.local",
+        );
+        return;
+      }
       const sessionId = activeSleepSessionId;
 
       if (sessionId) {
+        const updatePayload = { end_time: now.toISOString() };
+        console.log("[sleep_sessions] update payload", {
+          id: sessionId,
+          payload: updatePayload,
+        });
         const { error } = await supabase
           .from("sleep_sessions")
           .update({ end_time: now.toISOString() })
           .eq("id", sessionId);
-        if (error) throw error;
+        if (error) {
+          logSupabaseError("sleep_sessions.update", error);
+          throw error;
+        }
       } else {
         // No local session id (e.g. local storage cleared). We still allow the UX flow.
         setSyncError(
@@ -405,8 +528,8 @@ export default function Home() {
       );
       setBabyState("awake");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Supabase error";
-      setSyncError(msg);
+      logSupabaseError("handleToggle(end sleep)", e);
+      setSyncError(getUserFacingSupabaseError(e));
     } finally {
       setIsSyncing(false);
     }
