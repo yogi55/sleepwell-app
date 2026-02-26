@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+:root {
+  /* Always-on dark theme tuned for night use */
+  --background: #020617; /* slate-950 */
+  --foreground: #e5e7eb; /* zinc-200 */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
