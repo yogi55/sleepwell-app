@@ -1,0 +1,19 @@
+.sleep-recommendation {
+  font-family: Arial, sans-serif;
+  background-color: #f0f4f8;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 20px 0;
+}
+
+.sleep-recommendation h2 {
+  text-align: center;
+  color: #333;
+}
+
+.sleep-recommendation p {
+  font-size: 16px;
+  line-height: 1.5;
+  color: #555;
+}
